@@ -16,8 +16,8 @@ reserved = {
     'float': 'FLOAT_TYPE',
     'str': 'STRING_TYPE',
     'bool': 'BOOL_TYPE',
-    'true': 'TRUE',
-    'false': 'FALSE',
+    'True': 'TRUE',
+    'False': 'FALSE',
     'tobool': '2BOOL',
     'tofloat': '2FLOAT',
     'toint': '2INT',
@@ -26,7 +26,6 @@ reserved = {
 tokens += reserved.values()
 
 # Tokens
-
 t_EQ = r'=='
 t_NEQ = r'!='
 t_BOOL_TYPE = 'bool'
@@ -35,8 +34,8 @@ t_FLOAT_TYPE = 'float'
 t_STRING_TYPE = 'str'
 t_2BOOL = 'tobool'
 t_2FLOAT = 'tofloat'
-t_2STR = '->tostr'
-t_2INT = '->toint'
+t_2STR = 'tostr'
+t_2INT = 'toint'
 
 
 def t_STRING(t):
@@ -46,13 +45,13 @@ def t_STRING(t):
 
 
 def t_FALSE(t):
-    r'false'
+    r'False'
     t.value = False
     return t
 
 
 def t_TRUE(t):
-    r'true'
+    r'True'
     t.value = True
     return t
 
@@ -149,21 +148,21 @@ def eval_convert(expr):
     to = expr[1]
     try:
         return to(val)
-    except:
+    except ValueError:
         raise TypeError(f'Cannot convert type {type(val)} to type {to}')
 
 
 def p_expression_assign(p):
     'expression : NAME "=" expression'
     p[0] = ('assign', get_type(p[3]), p[1], p[3])
-
-
-def eval_assign(expression):
-    _, expr_type, name, val_expr = expression
+    name, expr_type = p[1], get_type(p[3])
     if name not in types.keys():
         raise LookupError(f"{name} undeclared")
     if types[name] != expr_type:
         raise TypeError(f"Expected type {types[name]} for {name}, got {expr_type}")
+
+def eval_assign(expression):
+    _, expr_type, name, val_expr = expression
     val = evaluate(val_expr)
     values[name] = val
     return val
@@ -180,16 +179,17 @@ def p_type(p):
 def p_expression_declare(p):
     'expression : type NAME "=" expression'
     p[0] = ('declare', str_to_type[p[1]], p[1], p[2], p[4])
-
-
-def eval_declare(expr):
-    _, type_class, _, name, val = expr
+    name, type_class, val = p[2], str_to_type[p[1]], p[4]
     if name in types.keys():
         raise RuntimeError(f"{name} already declared")
     if get_type(val) != type_class:
         raise TypeError(f"Expected type {type_class} for {name}, got {get_type(val)}")
-    val = evaluate(val)
     types[name] = type_class
+
+
+def eval_declare(expr):
+    _, _, _, name, val = expr
+    val = evaluate(val)
     values[name] = val
     return val
 
@@ -211,6 +211,8 @@ def eval_sequence(expression):
 
 def p_expression_if(p):
     """expression : IF expression THEN expression else_expression"""
+    if get_type(p[2]) != bool:
+        raise TypeError(f"Expected a boolean value for condition {p[2]}")
     if_type = type(None)
     if get_type(p[2]) == get_type(p[3]):
         if_type = get_type(p[2])
@@ -221,8 +223,6 @@ def p_expression_if(p):
 
 def eval_if(expr):
     _, _, condition, true_branch, false_branch = expr
-    if get_type(condition) != bool:
-        raise TypeError(f"Expected a boolean value for condition {condition}")
     if evaluate(condition):
         return evaluate(true_branch)
     else:
@@ -237,17 +237,13 @@ def p_else_expression(p):
 
 def p_expression_while(p):
     """expression : WHILE expression DO expression END"""
-    # p[2] = bool(p[2])
-    # while p[2]:
-    #     p[0] = p[4]
-    #     p[2] = bool(p[2])
+    if get_type(p[2]) != bool:
+        raise TypeError(f"Expected a boolean value for condition {p[2]}")
     p[0] = ('while', get_type(p[4]), p[2], p[4])
 
 
 def eval_while(expr):
     _, _, condition, body = expr
-    if get_type(condition) != bool:
-        raise TypeError(f"Expected a boolean value for condition {condition}")
     result = None
     while evaluate(condition):
         result = evaluate(body)
@@ -265,7 +261,11 @@ def p_expression_binop(p):
                   | expression '<' expression
                   | expression NEQ expression'''
     p[0] = ('binop', get_binop_type(p[1], p[3], p[2]), p[1], p[2], p[3])
-
+    try:
+        typecheck_binop(get_type(p[1]), get_type(p[3]), p[2])
+    except AssertionError:
+        raise TypeError(f"Unsupported operand {p[2]} between instances of"
+                        f"{get_type(p[1])} and {get_type(p[3])}")
 
 def get_binop_type(val1, val2, op):
     if op in ['>', '<', '==', '!=']:
@@ -292,19 +292,13 @@ def typecheck_binop(type1, type2, op):
         assert are_numbers(type1, type2) or type1 == type2 == str
     elif op == '*':
         assert are_numbers(type1, type2) or (
-                type1 == int and type2 == str) or (type2 == int and type1 == int)
+                type1 == int and type2 == str) or (type2 == int and type1 == str)
     elif op in ['>', '<']:
         assert are_numbers(type1, type2) or type1 == type2
 
 
 def eval_binop(expr):
     _, _, val1, op, val2 = expr
-    try:
-        typecheck_binop(get_type(val1), get_type(val2), op)
-    except AssertionError:
-        raise TypeError(f"Unsupported operand {op} between instances of"
-                        f"{get_type(val1)} and {get_type(val2)}")
-    
     val1, val2 = evaluate(val1), evaluate(val2)
     if op == '+':
         return val1 + val2
@@ -328,13 +322,15 @@ def eval_binop(expr):
 
 def p_expression_uminus(p):
     "expression : '-' expression %prec UMINUS"
-    p[0] = ('uminus', get_type(p[2]), p[2])
+    expr_type = get_type(p[2])
+    if not are_numbers(expr_type):
+        raise TypeError(f"You can only negate numbers, got type {expr_type}")
+
+    p[0] = ('uminus', get_type(expr_type), p[2])
 
 
 def eval_uminus(expr):
-    if not are_numbers(expr[1]):
-        raise TypeError(f"You can only negate numbers, got type {expr[1]}")
-    return -evaluate(expr[1])
+    return -evaluate(expr[2])
 
 
 def p_expression_group(p):
@@ -353,15 +349,13 @@ def p_expression_value(p):
 
 def p_expression_name(p):
     "expression : NAME"
-    p[0] = ('name', types[p[1]] if p[1] in types else type(None), p[1])
+    if p[1] not in types:
+        raise LookupError(f"Undefined name {p[1]}")
+    p[0] = ('name', types[p[1]], p[1])
 
 
 def eval_name(expr):
-    try:
-        return values[expr[2]]
-    except LookupError:
-        print("Undefined name '%s'" % expr[2])
-        return None
+    return values[expr[2]]
 
 
 eval_fun = {'assign': eval_assign, 'binop': eval_binop, 'uminus': eval_uminus, 'while': eval_while, 'if': eval_if,
@@ -409,4 +403,8 @@ while True:
         break
     if not s:
         continue
-    yacc.parse(s)
+    try:
+        yacc.parse(s)
+    except Exception as e:
+        print(type(e), e)
+
