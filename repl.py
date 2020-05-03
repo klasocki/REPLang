@@ -110,7 +110,7 @@ precedence = (
 )
 
 
-class Block:
+class Scope:
     def __init__(self, parent=None):
         self.parent = parent
         self.types = {}
@@ -146,12 +146,12 @@ class Block:
         return self.values[name]
 
 
-# dictionary of functions
-global_block = Block()
+# storage for variables and functions
+global_scope = Scope()
 functions = {}
 function_types = {}
 arguments = {}
-function_blocks = {}
+function_scopes = {}
 
 str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
 
@@ -159,10 +159,7 @@ str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
 def p_statement_expr(p):
     'statement : expression'
     print(p[1])
-    try:
-        print(evaluate(p[1], global_block))
-    except Exception as e:
-        print(type(e), e)
+    print(evaluate(p[1], global_scope))
 
 
 def p_convert(p):
@@ -173,15 +170,27 @@ def p_convert(p):
     p[0] = p[1]
 
 
-def get_type(expr, block):
+def get_type(expr, scope):
     if not type(expr) == tuple:
         return type(expr)
     elif expr[0] == 'call':
         return function_types[expr[1]]
     elif expr[0] == 'name':
-        return block.get_type(expr[1])
+        return scope.get_type(expr[1])
     elif expr[0] == 'binop':
-        return get_binop_type(expr[2], expr[4], expr[3], block)
+        return get_binop_type(expr[1], expr[3], expr[2], scope)
+    elif expr[0] == 'assign':
+        return get_type(expr[2], scope)
+    elif expr[0] == 'sequence':
+        return get_type(expr[2], scope)
+    elif expr[0] == 'block':
+        return get_type(expr[1], scope)
+    elif expr[0] == 'if':
+        return get_if_type(expr, scope)
+    elif expr[0] == 'while':
+        return get_type(expr[2], scope)
+    elif expr[0] == 'uminus':
+        return get_type(expr[1], scope)
     else:
         return expr[1]
 
@@ -192,8 +201,8 @@ def p_expression_convert(p):
     p[0] = ('convert', type_to_convert, p[1], p[2])
 
 
-def eval_convert(expr, block):
-    val = evaluate(expr[3], block)
+def eval_convert(expr, scope):
+    val = evaluate(expr[3], scope)
     to = expr[1]
     try:
         return to(val)
@@ -203,15 +212,15 @@ def eval_convert(expr, block):
 
 def p_expression_assign(p):
     'expression : NAME "=" expression'
-    p[0] = ('assign', None, p[1], p[3])
+    p[0] = ('assign', p[1], p[3])
 
 
-def eval_assign(expression, block):
-    _, _, name, val_expr = expression
-    expr_type = get_type(val_expr, block)
-    if block.get_type(name) != expr_type:
-        raise TypeError(f"Expected type {block.get_type(name)} for {name}, got {expr_type}")
-    return block.assign(name=name, expr=val_expr)
+def eval_assign(expression, scope):
+    _, name, val_expr = expression
+    expr_type = get_type(val_expr, scope)
+    if scope.get_type(name) != expr_type:
+        raise TypeError(f"Expected type {scope.get_type(name)} for {name}, got {expr_type}")
+    return scope.assign(name=name, expr=val_expr)
 
 
 def p_type(p):
@@ -227,11 +236,11 @@ def p_expression_declare(p):
     p[0] = ('declare', p[1], p[2], p[4])
 
 
-def eval_declare(expr, block: Block):
+def eval_declare(expr, scope: Scope):
     _, type_class, name, val = expr
-    if get_type(val, block) != type_class:
-        raise TypeError(f"Expected type {type_class} for {name}, got {get_type(val, block)}")
-    return block.declare(name=name, type_class=type_class, expr=val)
+    if get_type(val, scope) != type_class:
+        raise TypeError(f"Expected type {type_class} for {name}, got {get_type(val, scope)}")
+    return scope.declare(name=name, type_class=type_class, expr=val)
 
 
 def p_statement_def(p):
@@ -240,11 +249,11 @@ def p_statement_def(p):
         raise NameError(f"Function {p[1]} already exists")
     function_types[p[2]] = p[6]
     arguments[p[2]] = []
-    function_block = Block(parent=global_block)
-    function_blocks[p[2]] = function_block
+    function_scope = Scope(parent=global_scope)
+    function_scopes[p[2]] = function_scope
     for arg_type, name in p[3]:
         arguments[p[2]].append(name)
-        function_block.declare(name, arg_type, None)
+        function_scope.declare(name, arg_type, None)
 
     functions[p[2]] = p[8]
 
@@ -275,7 +284,7 @@ def p_call_args(p):
         p[0] = [p[1]] + p[3]
 
 
-def eval_call(expr, block: Block):
+def eval_call(expr, scope: Scope):
     _, fun, args = expr
     if fun not in functions.keys():
         raise NameError(f"Function {fun} undefined")
@@ -284,13 +293,16 @@ def eval_call(expr, block: Block):
         raise ValueError(f"Expected {len(arguments[fun])} arguments for {fun}, got "
                          f"{len(args)}")
     for i, (arg, expected) in enumerate(zip(args, arguments[fun])):
-        arg_type = function_blocks[fun].get_type(expected)
-        if get_type(arg, block) != arg_type:
-            raise TypeError(f"Argument {i} should be of type {arg_type}, got {get_type(arg, block)}")
+        arg_type = function_scopes[fun].get_type(expected)
+        if get_type(arg, scope) != arg_type:
+            try:
+                args[i] = arg_type(arg)
+            except ValueError:
+                raise TypeError(f"Argument {i} should be of type {arg_type}, got {get_type(arg, scope)}")
 
     for name, value in zip(arguments[fun], args):
-        function_blocks[fun].assign(name=name, expr=value)
-    return evaluate(functions[fun], function_blocks[fun])
+        function_scopes[fun].assign(name=name, expr=value)
+    return evaluate(functions[fun], function_scopes[fun])
 
 
 def p_error_expression(p):
@@ -300,38 +312,50 @@ def p_error_expression(p):
 
 def p_expression_semicolon(p):
     "expression : expression ';' expression"
-    p[0] = ('sequence', None, p[1], p[3])
+    p[0] = ('sequence', p[1], p[3])
 
 
-def eval_sequence(expression, block):
-    evaluate(expression[2], block)
-    return evaluate(expression[3], block)
+def eval_sequence(expression, scope):
+    evaluate(expression[1], scope)
+    return evaluate(expression[2], scope)
 
 
 def p_expression_block(p):
     """expression : '{' expression '}'"""
-    p[0] = ('block', None, p[2])
+    p[0] = ('block', p[2])
 
 
-def eval_block(expr, block):
-    new_block = Block(parent=block)
-    return evaluate(expr[2], new_block)
+def eval_block(expr, scope):
+    new_scope = Scope(parent=scope)
+    return evaluate(expr[1], new_scope)
 
 
 def p_expression_if(p):
     """expression : IF expression THEN expression else_expression"""
-    p[0] = ('if', None, p[2], p[4], p[5])
+    p[0] = ('if', p[2], p[4], p[5])
 
 
-def eval_if(expr, block: Block):
-    _, _, condition, true_branch, false_branch = expr
-    if_block = Block(parent=block)
-    if get_type(condition, if_block) != bool:
-        raise TypeError(f"Expected a boolean value for condition {condition}")
-    if evaluate(condition, if_block):
-        return evaluate(true_branch, if_block)
+def get_if_type(expr, scope):
+    _, _, true_branch, false_branch = expr
+    true_type = get_type(true_branch, scope)
+    false_type = get_type(false_branch, scope)
+    if true_type == false_type:
+        return true_type
+    elif are_numbers(true_type, false_type):
+        return float
     else:
-        return evaluate(false_branch, if_block)
+        return None
+
+
+def eval_if(expr, scope: Scope):
+    _, condition, true_branch, false_branch = expr
+    if_scope = Scope(parent=scope)
+    if get_type(condition, if_scope) != bool:
+        raise TypeError(f"Expected a boolean value for condition {condition}")
+    if evaluate(condition, if_scope):
+        return evaluate(true_branch, if_scope)
+    else:
+        return evaluate(false_branch, if_scope)
 
 
 def p_else_expression(p):
@@ -342,17 +366,17 @@ def p_else_expression(p):
 
 def p_expression_while(p):
     """expression : WHILE expression DO expression END"""
-    p[0] = ('while', None, p[2], p[4])
+    p[0] = ('while', p[2], p[4])
 
 
-def eval_while(expr, block):
-    _, _, condition, body = expr
-    if get_type(condition, block) != bool:
+def eval_while(expr, scope):
+    _, condition, body = expr
+    if get_type(condition, scope) != bool:
         raise TypeError(f"Expected a boolean value for condition {condition}")
     result = None
-    while_block = Block(parent=block)
-    while evaluate(condition, while_block):
-        result = evaluate(body, while_block)
+    while_scope = Scope(parent=scope)
+    while evaluate(condition, while_scope):
+        result = evaluate(body, while_scope)
     return result
 
 
@@ -366,19 +390,19 @@ def p_expression_binop(p):
                   | expression '>' expression
                   | expression '<' expression
                   | expression NEQ expression"""
-    p[0] = ('binop', None, p[1], p[2], p[3])
+    p[0] = ('binop', p[1], p[2], p[3])
 
 
-def get_binop_type(val1, val2, op, block):
+def get_binop_type(val1, val2, op, scope):
     if op in ['>', '<', '==', '!=']:
         return bool
-    if op == '/' or (not get_type(val1, block) == get_type(val2, block) and op in ['-', '^']):
+    if op == '/' or (not get_type(val1, scope) == get_type(val2, scope) and op in ['-', '^']):
         return float
-    if get_type(val1, block) == get_type(val2, block):
-        return get_type(val1, block)
-    if op == '*' and get_type(val1, block) in [str, int] and get_type(val2, block) in [str, int]:
+    if get_type(val1, scope) == get_type(val2, scope):
+        return get_type(val1, scope)
+    if op == '*' and get_type(val1, scope) in [str, int] and get_type(val2, scope) in [str, int]:
         return str
-    if op in ['+', '*'] and are_numbers(get_type(val1, block), get_type(val2, block)):
+    if op in ['+', '*'] and are_numbers(get_type(val1, scope), get_type(val2, scope)):
         return float
 
 
@@ -399,15 +423,15 @@ def typecheck_binop(type1, type2, op):
         assert are_numbers(type1, type2) or type1 == type2
 
 
-def eval_binop(expr, block: Block):
-    _, _, val1, op, val2 = expr
+def eval_binop(expr, scope: Scope):
+    _, val1, op, val2 = expr
     try:
-        typecheck_binop(get_type(val1, block), get_type(val2, block), op)
+        typecheck_binop(get_type(val1, scope), get_type(val2, scope), op)
     except AssertionError:
         raise TypeError(f"Unsupported operand {op} between instances of "
-                        f"{get_type(val1, block)} and {get_type(val2, block)}")
+                        f"{get_type(val1, scope)} and {get_type(val2, scope)}")
 
-    val1, val2 = evaluate(val1, block), evaluate(val2, block)
+    val1, val2 = evaluate(val1, scope), evaluate(val2, scope)
     if op == '+':
         return val1 + val2
     elif op == '-':
@@ -430,13 +454,14 @@ def eval_binop(expr, block: Block):
 
 def p_expression_uminus(p):
     "expression : '-' expression %prec UMINUS"
-    p[0] = ('uminus', None, p[2])
+    p[0] = ('uminus', p[2])
 
 
-def eval_uminus(expr, block: Block):
-    if not are_numbers(expr[1]):
-        raise TypeError(f"You can only negate numbers, got type {expr[1]}")
-    return -evaluate(expr[2], block)
+def eval_uminus(expr, scope: Scope):
+    val_type = get_type(expr[1], scope)
+    if not are_numbers(val_type):
+        raise TypeError(f"You can only negate numbers, got type {val_type}")
+    return -evaluate(expr[1], scope)
 
 
 def p_expression_group(p):
@@ -458,9 +483,9 @@ def p_expression_name(p):
     p[0] = ('name', p[1])
 
 
-def eval_name(expr, block):
+def eval_name(expr, scope):
     _, name = expr
-    return block.get_value(name)
+    return scope.get_value(name)
 
 
 eval_fun = {
@@ -478,9 +503,9 @@ eval_fun = {
 }
 
 
-def evaluate(expression: Union[tuple, float, int], block: Block):
+def evaluate(expression: Union[tuple, float, int], scope: Scope):
     if type(expression) == tuple:
-        return eval_fun[expression[0]](expression, block)
+        return eval_fun[expression[0]](expression, scope)
     else:
         return expression
 
