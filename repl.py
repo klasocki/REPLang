@@ -4,7 +4,7 @@ tokens = [
     'EQ', 'NEQ', 'FLOAT', 'NUMBER', 'NAME', 'STRING'
 ]
 
-literals = ['=', '+', '-', '*', '/', '(', ')', '^', '>', '<', ';']
+literals = ['=', '+', '-', '*', '/', '(', ')', '^', '>', '<', ';', ',', '{', '}']
 reserved = {
     'while': 'WHILE',
     'then': 'THEN',
@@ -21,7 +21,8 @@ reserved = {
     'tobool': '2BOOL',
     'tofloat': '2FLOAT',
     'toint': '2INT',
-    'tostr': '2STR'
+    'tostr': '2STR',
+    'def': 'DEF',
 }
 tokens += reserved.values()
 
@@ -36,6 +37,7 @@ t_2BOOL = 'tobool'
 t_2FLOAT = 'tofloat'
 t_2STR = 'tostr'
 t_2INT = 'toint'
+t_DEF = 'def'
 
 
 def t_STRING(t):
@@ -107,9 +109,50 @@ precedence = (
     ('right', 'UMINUS'),
 )
 
-# dictionary of names
-values = {}
-types = {}
+
+class Block:
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.types = {}
+        self.values = {}
+
+    def get_type(self, name: str):
+        if name in self.types:
+            return self.types[name]
+        if self.parent:
+            return self.parent.get_type(name)
+        raise LookupError(f"Name {name} undefined")
+
+    def get_value(self, name: str):
+        if name in self.values:
+            return self.values[name]
+        if self.parent:
+            return self.parent.get_value(name)
+        raise LookupError(f"Name {name} undefined")
+
+    def declare(self, name: str, type_class: type, expr: tuple):
+        if name in self.types:
+            raise RuntimeError(f"{name} already declared")
+        self.types[name] = type_class
+        self.values[name] = evaluate(expr, self)
+        return self.values[name]
+
+    def assign(self, name: str, expr: tuple):
+        if name not in self.types:
+            raise LookupError(f"Name {name} undefined")
+        if get_type(expr, self) != self.types[name]:
+            raise TypeError(f"Expected type {self.types[name]} for {name}, got {get_type(expr, self)}")
+        self.values[name] = evaluate(expr, self)
+        return self.values[name]
+
+
+# dictionary of functions
+global_block = Block()
+functions = {}
+function_types = {}
+arguments = {}
+function_blocks = {}
+
 str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
 
 
@@ -117,7 +160,7 @@ def p_statement_expr(p):
     'statement : expression'
     print(p[1])
     try:
-        print(evaluate(p[1]))
+        print(evaluate(p[1], global_block))
     except Exception as e:
         print(type(e), e)
 
@@ -130,9 +173,15 @@ def p_convert(p):
     p[0] = p[1]
 
 
-def get_type(expr):
+def get_type(expr, block):
     if not type(expr) == tuple:
         return type(expr)
+    elif expr[0] == 'call':
+        return function_types[expr[1]]
+    elif expr[0] == 'name':
+        return block.get_type(expr[1])
+    elif expr[0] == 'binop':
+        return get_binop_type(expr[2], expr[4], expr[3], block)
     else:
         return expr[1]
 
@@ -143,8 +192,8 @@ def p_expression_convert(p):
     p[0] = ('convert', type_to_convert, p[1], p[2])
 
 
-def eval_convert(expr):
-    val = evaluate(expr[3])
+def eval_convert(expr, block):
+    val = evaluate(expr[3], block)
     to = expr[1]
     try:
         return to(val)
@@ -154,18 +203,15 @@ def eval_convert(expr):
 
 def p_expression_assign(p):
     'expression : NAME "=" expression'
-    p[0] = ('assign', get_type(p[3]), p[1], p[3])
-    name, expr_type = p[1], get_type(p[3])
-    if name not in types.keys():
-        raise LookupError(f"{name} undeclared")
-    if types[name] != expr_type:
-        raise TypeError(f"Expected type {types[name]} for {name}, got {expr_type}")
+    p[0] = ('assign', None, p[1], p[3])
 
-def eval_assign(expression):
-    _, expr_type, name, val_expr = expression
-    val = evaluate(val_expr)
-    values[name] = val
-    return val
+
+def eval_assign(expression, block):
+    _, _, name, val_expr = expression
+    expr_type = get_type(val_expr, block)
+    if block.get_type(name) != expr_type:
+        raise TypeError(f"Expected type {block.get_type(name)} for {name}, got {expr_type}")
+    return block.assign(name=name, expr=val_expr)
 
 
 def p_type(p):
@@ -173,25 +219,78 @@ def p_type(p):
     | INT_TYPE
     | FLOAT_TYPE
     | BOOL_TYPE'''
-    p[0] = p[1]
+    p[0] = str_to_type[p[1]]
 
 
 def p_expression_declare(p):
     'expression : type NAME "=" expression'
-    p[0] = ('declare', str_to_type[p[1]], p[1], p[2], p[4])
-    name, type_class, val = p[2], str_to_type[p[1]], p[4]
-    if name in types.keys():
-        raise RuntimeError(f"{name} already declared")
-    if get_type(val) != type_class:
-        raise TypeError(f"Expected type {type_class} for {name}, got {get_type(val)}")
-    types[name] = type_class
+    p[0] = ('declare', p[1], p[2], p[4])
 
 
-def eval_declare(expr):
-    _, _, _, name, val = expr
-    val = evaluate(val)
-    values[name] = val
-    return val
+def eval_declare(expr, block: Block):
+    _, type_class, name, val = expr
+    if get_type(val, block) != type_class:
+        raise TypeError(f"Expected type {type_class} for {name}, got {get_type(val, block)}")
+    return block.declare(name=name, type_class=type_class, expr=val)
+
+
+def p_statement_def(p):
+    """statement : DEF NAME args '-' '>' type '=' expression"""
+    if p[2] in functions.keys():
+        raise NameError(f"Function {p[1]} already exists")
+    function_types[p[2]] = p[6]
+    arguments[p[2]] = []
+    function_block = Block(parent=global_block)
+    function_blocks[p[2]] = function_block
+    for arg_type, name in p[3]:
+        arguments[p[2]].append(name)
+        function_block.declare(name, arg_type, None)
+
+    functions[p[2]] = p[8]
+
+
+def p_args(p):
+    """args : empty
+            | type NAME args"""
+    if len(p) <= 2:
+        p[0] = []
+    else:
+        p[0] = [(p[1], p[2])] + p[3]
+
+
+def p_expression_call(p):
+    """expression : NAME '(' call_args ')'"""
+    p[0] = ('call', p[1], p[3])
+
+
+def p_call_args(p):
+    """call_args : empty
+                | expression
+                | expression ',' call_args"""
+    if len(p) == 2 and not p[1]:
+        p[0] = []
+    elif len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = [p[1]] + p[3]
+
+
+def eval_call(expr, block: Block):
+    _, fun, args = expr
+    if fun not in functions.keys():
+        raise NameError(f"Function {fun} undefined")
+    if len(args) != len(arguments[fun]):
+        print(args, arguments[fun])
+        raise ValueError(f"Expected {len(arguments[fun])} arguments for {fun}, got "
+                         f"{len(args)}")
+    for i, (arg, expected) in enumerate(zip(args, arguments[fun])):
+        arg_type = function_blocks[fun].get_type(expected)
+        if get_type(arg, block) != arg_type:
+            raise TypeError(f"Argument {i} should be of type {arg_type}, got {get_type(arg, block)}")
+
+    for name, value in zip(arguments[fun], args):
+        function_blocks[fun].assign(name=name, expr=value)
+    return evaluate(functions[fun], function_blocks[fun])
 
 
 def p_error_expression(p):
@@ -201,32 +300,38 @@ def p_error_expression(p):
 
 def p_expression_semicolon(p):
     "expression : expression ';' expression"
-    p[0] = ('sequence', get_type(p[3]), p[1], p[3])
+    p[0] = ('sequence', None, p[1], p[3])
 
 
-def eval_sequence(expression):
-    evaluate(expression[2])
-    return evaluate(expression[3])
+def eval_sequence(expression, block):
+    evaluate(expression[2], block)
+    return evaluate(expression[3], block)
+
+
+def p_expression_block(p):
+    """expression : '{' expression '}'"""
+    p[0] = ('block', None, p[2])
+
+
+def eval_block(expr, block):
+    new_block = Block(parent=block)
+    return evaluate(expr[2], new_block)
 
 
 def p_expression_if(p):
     """expression : IF expression THEN expression else_expression"""
-    if get_type(p[2]) != bool:
-        raise TypeError(f"Expected a boolean value for condition {p[2]}")
-    if_type = type(None)
-    if get_type(p[2]) == get_type(p[3]):
-        if_type = get_type(p[2])
-    elif are_numbers(get_type(p[2]), get_type(p[3])):
-        if_type = float
-    p[0] = ('if', if_type, p[2], p[4], p[5])
+    p[0] = ('if', None, p[2], p[4], p[5])
 
 
-def eval_if(expr):
+def eval_if(expr, block: Block):
     _, _, condition, true_branch, false_branch = expr
-    if evaluate(condition):
-        return evaluate(true_branch)
+    if_block = Block(parent=block)
+    if get_type(condition, if_block) != bool:
+        raise TypeError(f"Expected a boolean value for condition {condition}")
+    if evaluate(condition, if_block):
+        return evaluate(true_branch, if_block)
     else:
-        return evaluate(false_branch)
+        return evaluate(false_branch, if_block)
 
 
 def p_else_expression(p):
@@ -237,21 +342,22 @@ def p_else_expression(p):
 
 def p_expression_while(p):
     """expression : WHILE expression DO expression END"""
-    if get_type(p[2]) != bool:
-        raise TypeError(f"Expected a boolean value for condition {p[2]}")
-    p[0] = ('while', get_type(p[4]), p[2], p[4])
+    p[0] = ('while', None, p[2], p[4])
 
 
-def eval_while(expr):
+def eval_while(expr, block):
     _, _, condition, body = expr
+    if get_type(condition, block) != bool:
+        raise TypeError(f"Expected a boolean value for condition {condition}")
     result = None
-    while evaluate(condition):
-        result = evaluate(body)
+    while_block = Block(parent=block)
+    while evaluate(condition, while_block):
+        result = evaluate(body, while_block)
     return result
 
 
 def p_expression_binop(p):
-    '''expression : expression '+' expression
+    """expression : expression '+' expression
                   | expression '-' expression
                   | expression '*' expression
                   | expression '/' expression
@@ -259,24 +365,20 @@ def p_expression_binop(p):
                   | expression EQ expression
                   | expression '>' expression
                   | expression '<' expression
-                  | expression NEQ expression'''
-    p[0] = ('binop', get_binop_type(p[1], p[3], p[2]), p[1], p[2], p[3])
-    try:
-        typecheck_binop(get_type(p[1]), get_type(p[3]), p[2])
-    except AssertionError:
-        raise TypeError(f"Unsupported operand {p[2]} between instances of"
-                        f"{get_type(p[1])} and {get_type(p[3])}")
+                  | expression NEQ expression"""
+    p[0] = ('binop', None, p[1], p[2], p[3])
 
-def get_binop_type(val1, val2, op):
+
+def get_binop_type(val1, val2, op, block):
     if op in ['>', '<', '==', '!=']:
         return bool
-    if op == '/' or (not get_type(val1) == get_type(val2) and op in ['-', '^']):
+    if op == '/' or (not get_type(val1, block) == get_type(val2, block) and op in ['-', '^']):
         return float
-    if get_type(val1) == get_type(val2):
-        return get_type(val1)
-    if op == '*' and get_type(val1) in [str, int] and get_type(val2) in [str, int]:
+    if get_type(val1, block) == get_type(val2, block):
+        return get_type(val1, block)
+    if op == '*' and get_type(val1, block) in [str, int] and get_type(val2, block) in [str, int]:
         return str
-    if op in ['+', '*'] and are_numbers(get_type(val1), get_type(val2)):
+    if op in ['+', '*'] and are_numbers(get_type(val1, block), get_type(val2, block)):
         return float
 
 
@@ -297,9 +399,15 @@ def typecheck_binop(type1, type2, op):
         assert are_numbers(type1, type2) or type1 == type2
 
 
-def eval_binop(expr):
+def eval_binop(expr, block: Block):
     _, _, val1, op, val2 = expr
-    val1, val2 = evaluate(val1), evaluate(val2)
+    try:
+        typecheck_binop(get_type(val1, block), get_type(val2, block), op)
+    except AssertionError:
+        raise TypeError(f"Unsupported operand {op} between instances of "
+                        f"{get_type(val1, block)} and {get_type(val2, block)}")
+
+    val1, val2 = evaluate(val1, block), evaluate(val2, block)
     if op == '+':
         return val1 + val2
     elif op == '-':
@@ -322,15 +430,13 @@ def eval_binop(expr):
 
 def p_expression_uminus(p):
     "expression : '-' expression %prec UMINUS"
-    expr_type = get_type(p[2])
-    if not are_numbers(expr_type):
-        raise TypeError(f"You can only negate numbers, got type {expr_type}")
-
-    p[0] = ('uminus', get_type(expr_type), p[2])
+    p[0] = ('uminus', None, p[2])
 
 
-def eval_uminus(expr):
-    return -evaluate(expr[2])
+def eval_uminus(expr, block: Block):
+    if not are_numbers(expr[1]):
+        raise TypeError(f"You can only negate numbers, got type {expr[1]}")
+    return -evaluate(expr[2], block)
 
 
 def p_expression_group(p):
@@ -349,22 +455,32 @@ def p_expression_value(p):
 
 def p_expression_name(p):
     "expression : NAME"
-    if p[1] not in types:
-        raise LookupError(f"Undefined name {p[1]}")
-    p[0] = ('name', types[p[1]], p[1])
+    p[0] = ('name', p[1])
 
 
-def eval_name(expr):
-    return values[expr[2]]
+def eval_name(expr, block):
+    _, name = expr
+    return block.get_value(name)
 
 
-eval_fun = {'assign': eval_assign, 'binop': eval_binop, 'uminus': eval_uminus, 'while': eval_while, 'if': eval_if,
-            'sequence': eval_sequence, 'name': eval_name, 'declare': eval_declare, 'convert': eval_convert}
+eval_fun = {
+    'assign': eval_assign,
+    'binop': eval_binop,
+    'uminus': eval_uminus,
+    'while': eval_while,
+    'if': eval_if,
+    'sequence': eval_sequence,
+    'name': eval_name,
+    'convert': eval_convert,
+    'call': eval_call,
+    'declare': eval_declare,
+    'block': eval_block,
+}
 
 
-def evaluate(expression: Union[tuple, float, int]):
+def evaluate(expression: Union[tuple, float, int], block: Block):
     if type(expression) == tuple:
-        return eval_fun[expression[0]](expression)
+        return eval_fun[expression[0]](expression, block)
     else:
         return expression
 
@@ -407,4 +523,3 @@ while True:
         yacc.parse(s)
     except Exception as e:
         print(type(e), e)
-
