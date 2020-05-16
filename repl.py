@@ -116,6 +116,9 @@ class Scope:
         self.types = {}
         self.values = {}
 
+    def is_name_declared(self, name: str):
+        return name in self.types or (self.parent and self.parent.is_name_declared(name))
+
     def get_type(self, name: str):
         if name in self.types:
             return self.types[name]
@@ -138,10 +141,10 @@ class Scope:
         return self.values[name]
 
     def assign(self, name: str, expr: tuple):
-        if name not in self.types:
+        if not self.is_name_declared(name):
             raise LookupError(f"Name {name} undefined")
-        if get_type(expr, self) != self.types[name]:
-            raise TypeError(f"Expected type {self.types[name]} for {name}, got {get_type(expr, self)}")
+        if get_type(expr, self) != self.get_type(name):
+            raise TypeError(f"Expected type {self.get_type(name)} for {name}, got {get_type(expr, self)}")
         self.values[name] = evaluate(expr, self)
         return self.values[name]
 
@@ -245,6 +248,7 @@ def eval_declare(expr, scope: Scope):
 
 def p_statement_def(p):
     """statement : DEF NAME args '-' '>' type '=' expression"""
+    print(p[8])
     if p[2] in functions.keys():
         raise NameError(f"Function {p[1]} already exists")
     function_types[p[2]] = p[6]
@@ -276,7 +280,7 @@ def p_call_args(p):
     """call_args : empty
                 | expression
                 | expression ',' call_args"""
-    if len(p) == 2 and not p[1]:
+    if len(p) == 2 and p[1] is None:
         p[0] = []
     elif len(p) == 2:
         p[0] = [p[1]]
@@ -292,17 +296,24 @@ def eval_call(expr, scope: Scope):
         print(args, arguments[fun])
         raise ValueError(f"Expected {len(arguments[fun])} arguments for {fun}, got "
                          f"{len(args)}")
+    parent_scope = function_scopes[fun] if scope == global_scope else scope
+    new_scope = Scope(parent=parent_scope)
+    arg_values = [arg for arg in args]
     for i, (arg, expected) in enumerate(zip(args, arguments[fun])):
         arg_type = function_scopes[fun].get_type(expected)
-        if get_type(arg, scope) != arg_type:
+        arg_values[i] = evaluate(arg, new_scope)
+        if type(arg_values[i]) != arg_type:
             try:
-                args[i] = arg_type(arg)
-            except ValueError:
-                raise TypeError(f"Argument {i} should be of type {arg_type}, got {get_type(arg, scope)}")
+                arg_values[i] = arg_type(arg_values[i])
+            except (TypeError, ValueError):
+                raise TypeError(f"Argument {i} should be of type {arg_type}, got {type(arg_values[i])}")
 
-    for name, value in zip(arguments[fun], args):
-        function_scopes[fun].assign(name=name, expr=value)
-    return evaluate(functions[fun], function_scopes[fun])
+    for name, value in zip(arguments[fun], arg_values):
+        if new_scope.is_name_declared(name):
+            new_scope.assign(name=name, expr=value)
+        else:
+            new_scope.declare(name, type(value), value)
+    return evaluate(functions[fun], new_scope)
 
 
 def p_error_expression(p):
