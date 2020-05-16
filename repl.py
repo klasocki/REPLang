@@ -323,7 +323,12 @@ def p_error_expression(p):
 
 def p_expression_semicolon(p):
     "expression : expression ';' expression"
-    p[0] = ('sequence', p[1], p[3])
+    first_expr = p[1]
+    no_side_effect_constructs = ['binop', 'uminus', 'name', 'convert']
+    if type(first_expr) != tuple or first_expr[0] in no_side_effect_constructs:
+        p[0] = p[3]
+    else:
+        p[0] = ('sequence', p[1], p[3])
 
 
 def eval_sequence(expression, scope):
@@ -401,7 +406,17 @@ def p_expression_binop(p):
                   | expression '>' expression
                   | expression '<' expression
                   | expression NEQ expression"""
-    p[0] = ('binop', p[1], p[2], p[3])
+    val1, op, val2 = p[1:]
+    if (val1 == 0 and op == '+') or (val1 == 1 and op == '*'):
+        p[0] = val2
+    elif (val2 == 0 and op in ['+', '-']) or (val2 == 1 and op in ['*', '/']):
+        p[0] = val1
+    elif val1 == 2 and op == '*':
+        p[0] = ('binop', val2, '+', val2)
+    elif val2 == 2 and op == '*':
+        p[0] = ('binop', val1, '+', val1)
+    else:
+        p[0] = ('binop', val1, op, val2)
 
 
 def get_binop_type(val1, val2, op, scope):
