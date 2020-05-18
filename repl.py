@@ -23,6 +23,8 @@ reserved = {
     'toint': '2INT',
     'tostr': '2STR',
     'def': 'DEF',
+    'not': 'NOT',
+    'print': 'PRINT',
 }
 tokens += reserved.values()
 
@@ -38,6 +40,8 @@ t_2FLOAT = 'tofloat'
 t_2STR = 'tostr'
 t_2INT = 'toint'
 t_DEF = 'def'
+t_NOT = 'not'
+t_PRINT = 'print'
 
 
 def t_STRING(t):
@@ -100,7 +104,9 @@ lexer = lex.lex()
 precedence = (
     ('left', 'IF', 'ELSE', 'THEN', 'WHILE'),
     ('left', ';'),
+    ('left', 'PRINT'),
     ('left', 'EQ', 'NEQ', '>', '<'),
+    ('left', 'NOT'),
     ('left', '='),
     ('right', '2INT', '2FLOAT', '2STR', '2BOOL'),
     ('left', '+', '-'),
@@ -158,6 +164,8 @@ function_scopes = {}
 
 str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
 
+RUNNING_REPL = True
+
 
 def p_statement_expr(p):
     'statement : expression'
@@ -211,6 +219,26 @@ def eval_convert(expr, scope):
         return to(val)
     except ValueError:
         raise TypeError(f'Cannot convert type {type(val)} to type {to}')
+
+
+def p_expression_not(p):
+    "expression : NOT expression"
+    p[0] = ('not', p[2])
+
+
+def eval_not(expr, scope):
+    return not bool(evaluate(expr[1], scope))
+
+
+def p_expression_print(p):
+    "expression : PRINT expression"
+    p[0] = ('print', p[2])
+
+
+def eval_print(expr, scope):
+    val = evaluate(expr[1], scope)
+    print(val)
+    return val
 
 
 def p_expression_assign(p):
@@ -526,6 +554,8 @@ eval_fun = {
     'call': eval_call,
     'declare': eval_declare,
     'block': eval_block,
+    'print': eval_print,
+    'not': eval_not,
 }
 
 
