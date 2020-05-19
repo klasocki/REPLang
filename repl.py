@@ -1,3 +1,6 @@
+import ply.yacc as yacc
+import ply.lex as lex
+import sys
 from typing import Union
 
 tokens = [
@@ -95,8 +98,6 @@ def t_error(t):
 
 
 # Build the lexer
-import ply.lex as lex
-
 lexer = lex.lex()
 
 # Parsing rules
@@ -210,11 +211,14 @@ def get_type(expr, scope):
 def p_expression_convert(p):
     'expression : convert expression'
     type_to_convert = str_to_type[p[1].lstrip('to')]
-    p[0] = ('convert', type_to_convert, p[1], p[2])
+    p[0] = ('convert', type_to_convert, p[2])
+    # conversions on primitives done at compile time
+    if type(p[2]) != tuple:
+        p[0] = eval_convert(p[0], None)
 
 
 def eval_convert(expr, scope):
-    val = evaluate(expr[3], scope)
+    val = evaluate(expr[2], scope)
     to = expr[1]
     try:
         return to(val)
@@ -437,16 +441,21 @@ def p_expression_binop(p):
                   | expression '<' expression
                   | expression NEQ expression"""
     val1, op, val2 = p[1:]
+    # math optimizations
     if (val1 == 0 and op == '+') or (val1 == 1 and op == '*'):
         p[0] = val2
     elif (val2 == 0 and op in ['+', '-']) or (val2 == 1 and op in ['*', '/']):
         p[0] = val1
-    elif val1 == 2 and op == '*':
-        p[0] = ('binop', val2, '+', val2)
-    elif val2 == 2 and op == '*':
-        p[0] = ('binop', val1, '+', val1)
     else:
-        p[0] = ('binop', val1, op, val2)
+        if val1 == 2 and op == '*':
+            p[0] = ('binop', val2, '+', val2)
+        elif val2 == 2 and op == '*':
+            p[0] = ('binop', val1, '+', val1)
+        else:
+            p[0] = ('binop', val1, op, val2)
+        # binop on 2 primitives is evaluated at compile time
+        if type(val1) != tuple and type(val2) != tuple:
+            p[0] = eval_binop(('binop', val1, op, val2), None)
 
 
 def get_binop_type(val1, val2, op, scope):
@@ -511,6 +520,8 @@ def eval_binop(expr, scope: Scope):
 def p_expression_uminus(p):
     "expression : '-' expression %prec UMINUS"
     p[0] = ('uminus', p[2])
+    if type(p[2]) != tuple:
+        p[0] = eval_uminus(p[0], None)
 
 
 def eval_uminus(expr, scope: Scope):
@@ -590,9 +601,6 @@ def p_empty(p):
     'empty :'
     p[0] = None
 
-
-import ply.yacc as yacc
-import sys
 
 parser = yacc.yacc()
 
