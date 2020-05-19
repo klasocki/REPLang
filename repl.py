@@ -161,16 +161,21 @@ functions = {}
 function_types = {}
 arguments = {}
 function_scopes = {}
+RUNNING_AS_REPL = True
 
 str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
-
-RUNNING_REPL = True
 
 
 def p_statement_expr(p):
     'statement : expression'
-    print(p[1])
-    print(evaluate(p[1], global_scope))
+    val = evaluate(p[1], global_scope)
+    if RUNNING_AS_REPL:
+        print(p[1])
+        print(val)
+
+
+def p_statement_sequence(p):
+    """statement : statement ';' statement"""
 
 
 def p_convert(p):
@@ -190,18 +195,14 @@ def get_type(expr, scope):
         return scope.get_type(expr[1])
     elif expr[0] == 'binop':
         return get_binop_type(expr[1], expr[3], expr[2], scope)
-    elif expr[0] == 'assign':
+    elif expr[0] in ['assign', 'while']:
         return get_type(expr[2], scope)
     elif expr[0] == 'sequence':
         return get_type(expr[2], scope)
-    elif expr[0] == 'block':
+    elif expr[0] in ['block', 'uminus', 'print']:
         return get_type(expr[1], scope)
     elif expr[0] == 'if':
         return get_if_type(expr, scope)
-    elif expr[0] == 'while':
-        return get_type(expr[2], scope)
-    elif expr[0] == 'uminus':
-        return get_type(expr[1], scope)
     else:
         return expr[1]
 
@@ -276,9 +277,9 @@ def eval_declare(expr, scope: Scope):
 
 def p_statement_def(p):
     """statement : DEF NAME args '-' '>' type '=' expression"""
-    print(p[8])
+    print(p[1:])
     if p[2] in functions.keys():
-        raise NameError(f"Function {p[1]} already exists")
+        raise NameError(f"Function {p[2]} already exists")
     function_types[p[2]] = p[6]
     arguments[p[2]] = []
     function_scope = Scope(parent=global_scope)
@@ -288,6 +289,7 @@ def p_statement_def(p):
         function_scope.declare(name, arg_type, None)
 
     functions[p[2]] = p[8]
+    p[0] = None
 
 
 def p_args(p):
@@ -349,7 +351,7 @@ def p_error_expression(p):
     p[0] = p[3]
 
 
-def p_expression_semicolon(p):
+def p_expression_sequence(p):
     "expression : expression ';' expression"
     first_expr = p[1]
     no_side_effect_constructs = ['binop', 'uminus', 'name', 'convert']
@@ -590,17 +592,26 @@ def p_empty(p):
 
 
 import ply.yacc as yacc
+import sys
 
 parser = yacc.yacc()
 
-while True:
-    try:
-        s = input('calc > ')
-    except (EOFError, KeyboardInterrupt):
-        break
-    if not s:
-        continue
-    try:
-        yacc.parse(s)
-    except Exception as e:
-        print(type(e), e)
+if len(sys.argv) > 1:
+    RUNNING_AS_REPL = False
+    with open(sys.argv[1], 'r') as f:
+        try:
+            yacc.parse(f.read())
+        except Exception as e:
+            print(type(e), e)
+else:
+    while True:
+        try:
+            s = input('calc > ')
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not s:
+            continue
+        try:
+            yacc.parse(s)
+        except Exception as e:
+            print(type(e), e)
