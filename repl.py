@@ -169,9 +169,10 @@ str_to_type = {'int': int, 'float': float, 'str': str, 'bool': bool}
 
 def p_statement_expr(p):
     'statement : expression'
+    if type(p[1]) == tuple:
+        print(p[1])
     val = evaluate(p[1], global_scope)
     if RUNNING_AS_REPL:
-        print(p[1])
         print(val)
 
 
@@ -614,7 +615,7 @@ if len(sys.argv) > 1:
 else:
     while True:
         try:
-            s = input('calc > ')
+            s = input('REPLang > ')
         except (EOFError, KeyboardInterrupt):
             break
         if not s:
