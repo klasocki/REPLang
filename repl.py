@@ -282,7 +282,8 @@ def eval_declare(expr, scope: Scope):
 
 def p_statement_def(p):
     """statement : DEF NAME args '-' '>' type '=' expression"""
-    print(p[1:])
+    if RUNNING_AS_REPL:
+        print(p[1:])
     if p[2] in functions.keys():
         raise NameError(f"Function {p[2]} already exists")
     function_types[p[2]] = p[6]
@@ -359,7 +360,7 @@ def p_error_expression(p):
 def p_expression_sequence(p):
     "expression : expression ';' expression"
     first_expr = p[1]
-    no_side_effect_constructs = ['binop', 'uminus', 'name', 'convert']
+    no_side_effect_constructs = ['binop', 'uminus', 'name', 'convert', 'call']
     if type(first_expr) != tuple or first_expr[0] in no_side_effect_constructs:
         p[0] = p[3]
     else:
@@ -400,13 +401,12 @@ def get_if_type(expr, scope):
 
 def eval_if(expr, scope: Scope):
     _, condition, true_branch, false_branch = expr
-    if_scope = Scope(parent=scope)
-    if get_type(condition, if_scope) != bool:
+    if get_type(condition, scope) != bool:
         raise TypeError(f"Expected a boolean value for condition {condition}")
-    if evaluate(condition, if_scope):
-        return evaluate(true_branch, if_scope)
+    if evaluate(condition, scope):
+        return evaluate(true_branch, scope)
     else:
-        return evaluate(false_branch, if_scope)
+        return evaluate(false_branch, scope)
 
 
 def p_else_expression(p):
@@ -425,9 +425,8 @@ def eval_while(expr, scope):
     if get_type(condition, scope) != bool:
         raise TypeError(f"Expected a boolean value for condition {condition}")
     result = None
-    while_scope = Scope(parent=scope)
-    while evaluate(condition, while_scope):
-        result = evaluate(body, while_scope)
+    while evaluate(condition, scope):
+        result = evaluate(body, scope)
     return result
 
 

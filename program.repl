@@ -1,4 +1,19 @@
+def factorial int n -> int = (
+     if n < 2 then
+        1
+     else
+        n * factorial(n - 1)
+);
+
+def addToX float y -> float = (tofloat x + y);
+
+print "hello world" + "!" * 3;
 print 4 + 5;
-print 3 + 2;
-int x = 3;
-int x = 4
+float x = 4.5;
+while x > 1 do
+    print x = x - 1
+end;
+print x;
+
+print factorial(addToX(5))
+

@@ -1,20 +1,20 @@
 # Welcome to REPLang
 REPLang is a statically typed language programming language designed with working in REPL (read-evaluate-print loop) in mind. 
-It is as easy to type as possible, tries to use fewest brackets possible, and everything can be written as a one-liner.
+It is as easy to type as possible, tries to use fewest brackets possible, and everything can be written as an one-liner.
 
 Please note that REPLang is not designed to be a fully-fledged programming language.
 I tried to learn as much as possible during development, not make it as good as possible.
 It is written in python using PLY, and only slightly optimized.
 It is best used as a comfortable and easy to use calculator.
 
-This repository also contains a converter from a subset of HTML to markdown language, and a RPN calculator
+This repository also contains a converter from a subset of HTML to markdown language, and a RPN calculator,
 which are covered after REPLang
 
 # Using REPLang
 REPLang was inspired by languages such as Scala and Haskell, however it is not a functional language -
 it has variables and a while loop.
 
-Everything in REPLang is an exception, even assignment, declaration and 'print', with one exception:
+Everything in REPLang is an expression, even assignment, declaration and 'print', with one exception:
 function definition.
 
 Quick overview of REPLang constructs:
@@ -96,7 +96,7 @@ or have it execute a program from a file, specified as an argument:
 'program.repl' is an example program provided with this repository.
 
 When running program from a file, each expression, except the last one
- must end with a ';'.
+ (last in the program, if, while or function) must end with a ';'. 
 REPLang is whitespace insensitive, you can format your code in any way that looks good to you.
 
 
@@ -312,8 +312,6 @@ None
 If always returns a value - if condition is false, and no else branch is provided,
 that value is None
 
-If has it's own scope - you can shadow variables from outer scope, and will not see
-variables declared inside the condition or the if body outside of the if body
 * Expression: while
 
 While is the one and only loop in REPLang - and also an expression!
@@ -336,8 +334,6 @@ REPLang > tryToAssignNone
 ('name', 'tryToAssignNone')
 None
 ``` 
-While has it's own scope - you can shadow variables from outer scope, and will not see
-variables declared inside the condition or the loop body
 * Statement: def (Function definition) and Expression: call
 
 Last but not least, is our only not-expression in REPLang:
@@ -345,7 +341,8 @@ Function definition. It's closely tied to the call expression, which
  returns a function value, similarly to the name expression. 
  
  REPLang is pass-by-value - you cannot modifications done to arguments are only visible
- in the function scope. You can, however, modify global variables from inside a function.
+ in the function scope. You can modify global variables from inside a function, 
+ but this modification is only visible inside a function.
  
  Note that it's impossible in REPLang to have a void function (procedure)
  Let's see some examples
@@ -439,11 +436,11 @@ has no side effects - that is, when it is one of:
  1. 'uminus'
   1. 'name'
    1. 'convert'
+   1. 'call'
    1. Primitive value
 ```
-REPLang > x ^ 23636542; x     
-('name', 'x')
-2
+REPLang > factorial(125245133426); 3 + 4
+7
 REPLang > (x = x ^ 13665125) + 1; x
 ('name', 'x')
 2
