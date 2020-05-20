@@ -3,6 +3,7 @@ REPLang is a statically typed language programming language designed with workin
 It is as easy to type as possible, tries to use fewest brackets possible, and everything can be written as a one-liner.
 
 Please note that REPLang is not designed to be a fully-fledged programming language.
+I tried to learn as much as possible during development, not make it as good as possible.
 It is written in python using PLY, and only slightly optimized.
 It is best used as a comfortable and easy to use calculator.
 
@@ -244,6 +245,10 @@ LexToken(;,';',1,9)
 ```
 Sequences is also how you can write multiline programs in a file -
 in that case, each line but the last one should end with semicolon
+
+WARNING! Please take a look at the 'Dead code removal' 
+section in Optimizations
+
 * Expression: print
 
 This expression prints, and then returns a given expression:
@@ -307,6 +312,8 @@ None
 If always returns a value - if condition is false, and no else branch is provided,
 that value is None
 
+If has it's own scope - you can shadow variables from outer scope, and will not see
+variables declared inside the condition or the if body outside of the if body
 * Expression: while
 
 While is the one and only loop in REPLang - and also an expression!
@@ -329,11 +336,16 @@ REPLang > tryToAssignNone
 ('name', 'tryToAssignNone')
 None
 ``` 
+While has it's own scope - you can shadow variables from outer scope, and will not see
+variables declared inside the condition or the loop body
 * Statement: def (Function definition) and Expression: call
 
 Last but not least, is our only not-expression in REPLang:
 Function definition. It's closely tied to the call expression, which
  returns a function value, similarly to the name expression. 
+ 
+ REPLang is pass-by-value - you cannot modifications done to arguments are only visible
+ in the function scope. You can, however, modify global variables from inside a function.
  
  Note that it's impossible in REPLang to have a void function (procedure)
  Let's see some examples
@@ -380,3 +392,103 @@ A few main takeaways:
 1. Number and type of arguments is checked
 1. Recursion and nested function calls are fully supported,
 but it is not possible to declare a function inside a function
+
+# Optimizations
+REPLang is not heavily optimized, however some basic ones have been made:
+* Compile time evaluation
+
+All the operations on constants are evaluated at compile time:
+```
+REPLang > int x = 2
+('declare', <class 'int'>, 'x', 2)
+2
+REPLang > -2^4 == -(2^4)
+False
+REPLang > -x^4 == -(x^4)
+('binop', ('binop', ('uminus', ('name', 'x')), '^', 4), '==', ('uminus', ('binop', ('name', 'x'), '^', 4)))
+False
+```
+The whole `-2^4 == -(2^4)` expression is simplified to `False` at compile time,
+before the program even starts its execution.
+* Mathematical identities
+```
+REPLang > x
+('name', 'x')
+2
+REPLang > x + 0
+('name', 'x')
+2
+REPLang > x * 1
+('name', 'x')
+2
+REPLang > x * 2
+('binop', ('name', 'x'), '+', ('name', 'x'))
+4
+```
+Some operators are changed to 'cheaper' at compile time -
+`2 * x` to `x + x`, and neutral elements (0 for addition, 1 for multiplication)
+are discarded
+* Dead code removal
+
+Since REPLang is designed for REPL it never knows when a
+variable or a function definition can be used, so it's tricky to
+remove unused ones. One simple optimization that could be performed is 
+discarding unused values in a sequence. It is done if the first expression in a sequence
+has no side effects - that is, when it is one of:
+1. 'binop'
+ 1. 'uminus'
+  1. 'name'
+   1. 'convert'
+   1. Primitive value
+```
+REPLang > x ^ 23636542; x     
+('name', 'x')
+2
+REPLang > (x = x ^ 13665125) + 1; x
+('name', 'x')
+2
+REPLang > 
+```
+WARNING! The second example here actually has side effects -
+in fact each of the 'discardable' expression types could have side effects,
+since assignment and declaration can be used in place of any expression in REPLang.
+However, taking advantage of that fact in these particular expressions is 
+not recommended, and thus these types of expressions will be removed 
+
+# Other included programs
+Follow the steps from REPLang's getting started guide first
+
+**rpn_calc.py**
+
+It's a Reverse Polish Notation calculator, also written using PLY, 
+supporting only
+basic arithmetic operations (+, -, *, /, ^). It can be run via `python3 rpn_calc.py`
+```
+calc > 3 4 + 7 / 3 * 
+3.0
+calc > 4 .5 ^ 2. ^
+4.0
+```
+
+**markdown_to_html_lex.py**
+
+It's a PLY lexer, which reads HTML tokens from a file,
+ and outputs markdown tokens to standard output. 
+ It can be run as 
+ 
+ ` python3 markdown_to_html_lex.py file.html > file.md`
+ 
+ file.html and file.md are provided with this repository,
+ so you can inspect the conversion results yourself.
+ 
+ Supported html tags:
+ * h1, h2
+ * p
+ * br
+ * em
+ * strong
+ * code
+ * hr
+ * strike
+ * ul, li, ol
+ 
