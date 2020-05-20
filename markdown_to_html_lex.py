@@ -147,7 +147,7 @@ def t_error(t):
 lexer = lex.lex()
 fh = None
 try:
-    fh = open(sys.argv[1] if len(sys.argv) > 1 else "plik.ini", "r")
+    fh = open(sys.argv[1] if len(sys.argv) > 1 else "file.html", "r")
     lexer.input(fh.read())
     print(''.join([token.value for token in lexer]))
     # for token in lexer:
