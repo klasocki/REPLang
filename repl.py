@@ -1,13 +1,14 @@
 import ply.yacc as yacc
 import ply.lex as lex
 import sys
+import math
 from typing import Union
 
 tokens = [
-    'EQ', 'NEQ', 'FLOAT', 'NUMBER', 'NAME', 'STRING'
+    'EQ', 'NEQ', 'FLOAT', 'NUMBER', 'NAME', 'STRING', 'POW'
 ]
 
-literals = ['=', '+', '-', '*', '/', '(', ')', '^', '>', '<', ';', ',', '{', '}']
+literals = ['=', '+', '-', '*', '/', '(', ')', '>', '<', ';', ',', '{', '}']
 reserved = {
     'while': 'WHILE',
     'then': 'THEN',
@@ -28,6 +29,8 @@ reserved = {
     'def': 'DEF',
     'not': 'NOT',
     'print': 'PRINT',
+    'sin': 'SIN',
+    'cos': 'COS'
 }
 tokens += reserved.values()
 
@@ -45,6 +48,14 @@ t_2INT = 'toint'
 t_DEF = 'def'
 t_NOT = 'not'
 t_PRINT = 'print'
+t_SIN = 'sin'
+t_COS = 'cos'
+
+
+def t_POW(t):
+    r"\^|\*\*"
+    t.value = '^'
+    return t
 
 
 def t_STRING(t):
@@ -105,14 +116,15 @@ lexer = lex.lex()
 precedence = (
     ('left', 'IF', 'ELSE', 'THEN', 'WHILE'),
     ('left', ';'),
-    ('left', 'PRINT'),
+    ('right', 'PRINT'),
     ('left', 'EQ', 'NEQ', '>', '<'),
     ('left', 'NOT'),
     ('left', '='),
     ('right', '2INT', '2FLOAT', '2STR', '2BOOL'),
     ('left', '+', '-'),
     ('left', '*', '/'),
-    ('right', '^'),
+    ('right', 'POW'),
+    ('right', 'SIN', 'COS'),
     ('right', 'UMINUS'),
 )
 
@@ -236,15 +248,25 @@ def eval_not(expr, scope):
     return not bool(evaluate(expr[1], scope))
 
 
-def p_expression_print(p):
-    "expression : PRINT expression"
-    p[0] = ('print', p[2])
+def p_expression_special_fun(p):
+    """expression : PRINT expression
+                    | SIN expression
+                    | COS expression"""
+    p[0] = (p[1], p[2])
 
 
 def eval_print(expr, scope):
     val = evaluate(expr[1], scope)
     print(val)
     return val
+
+
+def eval_sin(expr, scope):
+    return math.sin(evaluate(expr[1], scope))
+
+
+def eval_cos(expr, scope):
+    return math.cos(evaluate(expr[1], scope))
 
 
 def p_expression_assign(p):
@@ -435,7 +457,7 @@ def p_expression_binop(p):
                   | expression '-' expression
                   | expression '*' expression
                   | expression '/' expression
-                  | expression '^' expression
+                  | expression POW expression
                   | expression EQ expression
                   | expression '>' expression
                   | expression '<' expression
@@ -569,6 +591,8 @@ eval_fun = {
     'block': eval_block,
     'print': eval_print,
     'not': eval_not,
+    'sin': eval_sin,
+    'cos': eval_cos,
 }
 
 

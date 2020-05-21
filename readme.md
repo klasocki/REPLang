@@ -1,6 +1,6 @@
 # Welcome to REPLang
 REPLang is a statically typed language programming language designed with working in REPL (read-evaluate-print loop) in mind. 
-It is as easy to type as possible, tries to use fewest brackets possible, and everything can be written as an one-liner.
+It is as easy to type as possible, tries to use fewest brackets possible, and everything can be written as a one-liner.
 
 Please note that REPLang is not designed to be a fully-fledged programming language.
 I tried to learn as much as possible during development, not make it as good as possible.
@@ -10,7 +10,7 @@ It is best used as a comfortable and easy to use calculator.
 This repository also contains a converter from a subset of HTML to markdown language, and a RPN calculator,
 which are covered after REPLang
 
-# Using REPLang
+# About REPLang
 REPLang was inspired by languages such as Scala and Haskell, however it is not a functional language -
 it has variables and a while loop.
 
@@ -45,13 +45,15 @@ Quick overview of REPLang constructs:
 *   'def'
 *   'not'
 *   'print'
+*   'sin'
+*   'cos'
 
 **Operators**
 * '+'  - addition
 * '-' - subtraction and unary minus
 * '*' - multiplication
 * '/' - division
-* '^' - power 
+* '^ / **' - power (either one is good) 
 * '=' - assignment
 * '==' / '!=' - comparison
 * '>' / '<' - greater/less than
@@ -67,7 +69,7 @@ The evaluation order is `(8 / 4) / 2 == 1.0` instead of
 `8 / (4 / 2) == 4`. Similarly '^' has right associativity, so `3^2^4` evaluates to `3^(2^4) == 3^16` instead of `9^4`  
 *    ('left', 'if', 'else', 'then', 'while'),
 *    ('left', ';'),
-*    ('left', 'print'),
+*    ('right', 'print'),
 *    ('left', '==', '!=', '>', '<'),
 *    ('left', 'not'),
 *    ('left', '='),
@@ -75,6 +77,7 @@ The evaluation order is `(8 / 4) / 2 == 1.0` instead of
 *    ('left', '+', '-'),
 *    ('left', '*', '/'),
 *    ('right', '^'),
+*    ('right', 'SIN', 'COS'),
 *    ('right', 'UMINUS'),
 
 # Getting started with REPLang
@@ -151,6 +154,8 @@ Value of the variable in the **current scope** (more on that later) is retrieved
 REPLang > x + 4
 ('binop', ('name', 'x'), '+', 4)
 7
+REPLang > 2 ** 3 ^ 4
+2417851639229258349412352
 REPLang > (x + 2) * 3 > 15
 ('binop', ('binop', ('binop', ('name', 'x'), '+', 2), '*', 3), '>', 15)
 False
@@ -166,6 +171,8 @@ The operation priority is handled correctly - boolean operations (==, >, <) take
 while the unary '-' operator is the strongest, binding only the following expression and evaluated immediately.
 
 Desired order of calculations can be enforced using parenthesis.
+
+Power operator could be either '^' or '**' and is evaluated from the right
 
 The operators are overloaded to work correctly with different types, 
 and typechecking is performed at each operation:
@@ -334,6 +341,12 @@ REPLang > tryToAssignNone
 ('name', 'tryToAssignNone')
 None
 ``` 
+You can see that REPLang is very concise. Things that would require multiple instructions in other languages
+(first increment x, then print it; assign last x value to a variable) can be done in just one -
+
+`print x = x - 1` here, the value x - 1 is assigned to x, then 'passed' to print, and then 'passed' even further
+as the return value from print
+
 * Statement: def (Function definition) and Expression: call
 
 Last but not least, is our only not-expression in REPLang:
